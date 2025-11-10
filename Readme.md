@@ -165,20 +165,3 @@ Once the framework is built, it can be imported into other Python projects as a 
    if __name__ == "__main__":
        app.run(port=5000)
    ```
-
-## 6. Summary
-
-- This project is a **Zero Knowledge Authentication Framework**, not a simulation.
-- It provides the backend logic and cryptography for passwordless login.
-- Applications can import and use it directly for ZKP-based authentication.
-- Supports both local and Dockerized builds.
-- The WebAssembly module allows browser-side proof generation.
-
-## 7. Future Improvements
-
-1. Add token-based session management (JWT after ZKP login).
-2. Implement WebAuthn-style device proofs.
-3. Package the framework for PyPI (`pip install zkp-framework`).
-4. Add SPA frontend for developer testing.
-5. Integrate with FastAPI and Django.
-
