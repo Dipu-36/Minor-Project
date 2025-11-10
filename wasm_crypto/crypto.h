@@ -23,7 +23,7 @@ Algorithms used are :-
 // - out_v_b64: buffer to hold the base64url-encoded public key
 // - out_len: size of the output buffer
 // Returns: 0 on success, -1 on failure
-int compute_v_from_password(const uint8_t* password, size_t pw_len, 
+int compute_v_from_scalar(const uint8_t* password, size_t pw_len, 
                            char* out_v_b64, size_t out_len);
 
 // initiate_login_from_password begins a Schnnor login round, generates random r, and computes t = g^r.
@@ -34,7 +34,7 @@ int compute_v_from_password(const uint8_t* password, size_t pw_len,
 // - out_len: size of the output buffer
 // - state_id: pointer to an integer index into internal state pool for trackig session data
 // Returns: 0 on success, -1 on error
-int initiate_login_from_password(const uint8_t* password, size_t pw_len,
+int initiate_login_from_scalar(const uint8_t* password, size_t pw_len,
                                 char* out_t_b64, size_t out_len, 
                                 uint32_t* state_id);
 
