@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.log
+*.db
+*.pem
+*.crt
+*.key
+venv/
+node_modules/
+wasm_crypto/*.o
+wasm_crypto/*.a
+wasm_crypto/*.wasm
+wasm_crypto/*.js
+.git
+

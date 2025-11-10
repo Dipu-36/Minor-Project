@@ -1,154 +1,71 @@
-let wasmModule = null;
+/*
+worker.js
+----------
+Handles WebAssembly crypto operations off the main thread.
+Receives Argon2id scalar from zkp-loader.js and calls into crypto.wasm.
+*/
 
-// Message handler
-self.onmessage = async function(e) {
-    const { type, messageId } = e.data;
-    
-    try {
-        let result;
-        
-        switch (type) {
-            case 'INIT':
-                result = await initWasm(e.data.wasmBuffer);
-                break;
-            case 'REGISTER':
-                result = await handleRegister(e.data.password);
-                break;
-            case 'LOGIN_INIT':
-                result = await handleLoginInit(e.data.password);
-                break;
-            case 'LOGIN_RESP':
-                result = await handleLoginResp(e.data.state, e.data.challenge);
-                break;
-            default:
-                throw new Error(`Unknown message type: ${type}`);
-        }
-        
-        self.postMessage({ type, messageId, result });
-        
-    } catch (error) {
-        self.postMessage({ type, messageId, error: error.message });
-    }
+let wasmExports;
+let memory;
+
+async function initWasm() {
+  const response = await fetch("crypto.wasm");
+  const buffer = await response.arrayBuffer();
+  const module = await WebAssembly.compile(buffer);
+  const instance = await WebAssembly.instantiate(module, {});
+  wasmExports = instance.exports;
+  memory = wasmExports.memory;
+  console.log("✅ WASM loaded in worker");
+}
+
+self.onmessage = async (event) => {
+  const { cmd, scalar, challenge, state_id } = event.data;
+
+  if (!wasmExports) await initWasm();
+
+  if (cmd === "compute_v") {
+    const ptr = wasmExports._malloc(scalar.length);
+    new Uint8Array(memory.buffer, ptr, scalar.length).set(scalar);
+    const outPtr = wasmExports._malloc(128);
+
+    const rc = wasmExports._compute_v_from_scalar(ptr, scalar.length, outPtr, 128);
+    const resultBytes = new Uint8Array(memory.buffer, outPtr, 64);
+    const vB64 = new TextDecoder().decode(resultBytes).replace(/\0/g, "");
+
+    wasmExports._free(ptr);
+    wasmExports._free(outPtr);
+    postMessage({ v: vB64 });
+  }
+
+  else if (cmd === "initiate_login") {
+    const ptr = wasmExports._malloc(scalar.length);
+    new Uint8Array(memory.buffer, ptr, scalar.length).set(scalar);
+    const outPtr = wasmExports._malloc(128);
+    const statePtr = wasmExports._malloc(4);
+
+    const rc = wasmExports._initiate_login_from_scalar(ptr, scalar.length, outPtr, 128, statePtr);
+    const tBytes = new Uint8Array(memory.buffer, outPtr, 64);
+    const tB64 = new TextDecoder().decode(tBytes).replace(/\0/g, "");
+    const state_id = new DataView(memory.buffer).getUint32(statePtr, true);
+
+    wasmExports._free(ptr);
+    wasmExports._free(outPtr);
+    wasmExports._free(statePtr);
+    postMessage({ t: tB64, state_id });
+  }
+
+  else if (cmd === "compute_s") {
+    const cPtr = wasmExports._malloc(challenge.length);
+    new Uint8Array(memory.buffer, cPtr, challenge.length).set(challenge);
+    const outPtr = wasmExports._malloc(128);
+
+    const rc = wasmExports._compute_response_from_state(state_id, cPtr, challenge.length, outPtr, 128);
+    const sBytes = new Uint8Array(memory.buffer, outPtr, 64);
+    const sB64 = new TextDecoder().decode(sBytes).replace(/\0/g, "");
+
+    wasmExports._free(cPtr);
+    wasmExports._free(outPtr);
+    postMessage({ s: sB64 });
+  }
 };
 
-async function initWasm(wasmBuffer) {
-    const imports = {
-        env: {
-            emscripten_random_buf: (ptr, size) => {
-                const randomValues = crypto.getRandomValues(new Uint8Array(size));
-                wasmModule.HEAPU8.set(randomValues, ptr);
-            }
-        }
-    };
-    
-    wasmModule = await WebAssembly.instantiate(wasmBuffer, imports);
-    return { status: 'ready' };
-}
-
-async function handleRegister(password) {
-    const passwordEncoded = new TextEncoder().encode(password);
-    const passwordPtr = wasmModule._malloc(passwordEncoded.length);
-    wasmModule.HEAPU8.set(passwordEncoded, passwordPtr);
-    
-    const outputPtr = wasmModule._malloc(64); // Enough for base64
-    
-    const result = wasmModule._compute_v_from_password(
-        passwordPtr, 
-        passwordEncoded.length, 
-        outputPtr, 
-        64
-    );
-    
-    let v = null;
-    if (result === 0) {
-        v = wasmModule.UTF8ToString(outputPtr);
-    }
-    
-    // Cleanup
-    wasmModule._free(passwordPtr);
-    wasmModule._free(outputPtr);
-    
-    if (result !== 0) {
-        throw new Error('Registration failed');
-    }
-    
-    return { v };
-}
-
-async function handleLoginInit(password) {
-    const passwordEncoded = new TextEncoder().encode(password);
-    const passwordPtr = wasmModule._malloc(passwordEncoded.length);
-    wasmModule.HEAPU8.set(passwordEncoded, passwordPtr);
-    
-    const outputPtr = wasmModule._malloc(64);
-    const statePtr = wasmModule._malloc(4);
-    
-    const result = wasmModule._initiate_login_from_password(
-        passwordPtr,
-        passwordEncoded.length,
-        outputPtr,
-        64,
-        statePtr
-    );
-    
-    let t = null;
-    let state = null;
-    if (result === 0) {
-        t = wasmModule.UTF8ToString(outputPtr);
-        state = wasmModule.HEAPU32[statePtr >> 2];
-    }
-    
-    // Cleanup
-    wasmModule._free(passwordPtr);
-    wasmModule._free(outputPtr);
-    wasmModule._free(statePtr);
-    
-    if (result !== 0) {
-        throw new Error('Login initiation failed');
-    }
-    
-    return { t, state };
-}
-
-async function handleLoginResp(state, challenge) {
-    const challengeBuffer = base64urlToBuffer(challenge);
-    const challengePtr = wasmModule._malloc(challengeBuffer.length);
-    wasmModule.HEAPU8.set(new Uint8Array(challengeBuffer), challengePtr);
-    
-    const outputPtr = wasmModule._malloc(64);
-    
-    const result = wasmModule._compute_response_from_state(
-        state,
-        challengePtr,
-        challengeBuffer.length,
-        outputPtr,
-        64
-    );
-    
-    let s = null;
-    if (result === 0) {
-        s = wasmModule.UTF8ToString(outputPtr);
-    }
-    
-    // Cleanup
-    wasmModule._free(challengePtr);
-    wasmModule._free(outputPtr);
-    
-    if (result !== 0) {
-        throw new Error('Response computation failed');
-    }
-    
-    return { s };
-}
-
-function base64urlToBuffer(base64url) {
-    const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
-    const padding = '='.repeat((4 - (base64.length % 4)) % 4);
-    const base64WithPadding = base64 + padding;
-    const binary = atob(base64WithPadding);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
-}

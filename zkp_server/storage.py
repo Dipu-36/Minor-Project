@@ -1,88 +1,83 @@
-import sqlite3
-import time
-from typing import Optional
+"""
+storage.py
+-----------
+Manages persistence for:
+- Registered users (user_id, verifier v, salt)
+- Active sessions (session_id, t, c, expiration)
+"""
 
-class Storage:
-    def __init__(self, db_path: str = "zkp_auth.db"):
-        self.db_path = db_path
-        self._init_db()
-    
-    def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id TEXT PRIMARY KEY,
-                    v TEXT NOT NULL,
-                    created_at INTEGER NOT NULL
-                )
-            ''')
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS sessions (
-                    session_id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    t_data TEXT NOT NULL,
-                    challenge TEXT NOT NULL,
-                    created_at INTEGER NOT NULL,
-                    expires_at INTEGER NOT NULL,
-                    client_ip TEXT NOT NULL,
-                    used INTEGER DEFAULT 0
-                )
-            ''')
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS rate_limits (
-                    key TEXT PRIMARY KEY,
-                    attempts INTEGER NOT NULL,
-                    window_start INTEGER NOT NULL
-                )
-            ''')
-            conn.commit()
-    
-    def store_verifier(self, user_id: str, v: str):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO users (user_id, v, created_at) VALUES (?, ?, ?)",
-                (user_id, v, int(time.time()))
-            )
-            conn.commit()
-    
-    def get_verifier(self, user_id: str) -> Optional[str]:
-        with sqlite3.connect(self.db_path) as conn:
-            result = conn.execute(
-                "SELECT v FROM users WHERE user_id = ?", (user_id,)
-            ).fetchone()
-            return result[0] if result else None
-    
-    def store_session(self, session_id: str, user_id: str, t_data: str, challenge: str, 
-                     expires_at: int, client_ip: str):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                '''INSERT INTO sessions 
-                   (session_id, user_id, t_data, challenge, created_at, expires_at, client_ip)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (session_id, user_id, t_data, challenge, int(time.time()), expires_at, client_ip)
-            )
-            conn.commit()
-    
-    def get_session(self, session_id: str) -> Optional[dict]:
-        with sqlite3.connect(self.db_path) as conn:
-            result = conn.execute(
-                "SELECT user_id, t_data, challenge, expires_at, used FROM sessions WHERE session_id = ?",
-                (session_id,)
-            ).fetchone()
-            if not result:
-                return None
-            return {
-                'user_id': result[0],
-                't_data': result[1],
-                'challenge': result[2],
-                'expires_at': result[3],
-                'used': bool(result[4])
-            }
-    
-    def mark_session_used(self, session_id: str):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "UPDATE sessions SET used = 1 WHERE session_id = ?",
-                (session_id,)
-            )
-            conn.commit()
+import sqlite3
+import base64
+from zkp_server import config
+
+def _get_conn():
+    conn = sqlite3.connect(config.DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
+
+def init_db():
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id TEXT PRIMARY KEY,
+            verifier TEXT NOT NULL,
+            salt TEXT NOT NULL
+        );
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            t_b64 TEXT NOT NULL,
+            c_bytes BLOB NOT NULL,
+            expires_at INTEGER NOT NULL,
+            used INTEGER DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+def store_user(user_id, verifier, salt):
+    conn = _get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO users (user_id, verifier, salt) VALUES (?, ?, ?);",
+        (user_id, verifier, salt)
+    )
+    conn.commit()
+    conn.close()
+
+def get_user(user_id):
+    conn = _get_conn()
+    cur = conn.execute("SELECT verifier, salt FROM users WHERE user_id=?;", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row if row else None
+
+def store_session(user_id, session_id, t_b64, c_bytes, expires_at):
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO sessions (session_id, user_id, t_b64, c_bytes, expires_at) VALUES (?, ?, ?, ?, ?);",
+        (session_id, user_id, t_b64, c_bytes, expires_at)
+    )
+    conn.commit()
+    conn.close()
+
+def load_session(session_id):
+    conn = _get_conn()
+    cur = conn.execute(
+        "SELECT u.verifier, s.t_b64, s.c_bytes, s.expires_at "
+        "FROM sessions s JOIN users u ON s.user_id = u.user_id WHERE s.session_id=? AND s.used=0;",
+        (session_id,)
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+def mark_session_used(session_id):
+    conn = _get_conn()
+    conn.execute("UPDATE sessions SET used=1 WHERE session_id=?;", (session_id,))
+    conn.commit()
+    conn.close()
+

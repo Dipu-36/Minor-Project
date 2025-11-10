@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ZKP Authentication Demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #fafafa; padding: 20px; }
+    h1 { color: #2c3e50; }
+    .container { max-width: 500px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    input { width: 100%; margin: 5px 0; padding: 8px; font-size: 14px; }
+    button { margin: 8px 0; padding: 10px; width: 100%; background: #3498db; color: white; border: none; border-radius: 5px; font-size: 15px; cursor: pointer; }
+    button:hover { background: #2980b9; }
+    #log { background: #f0f0f0; font-size: 13px; padding: 10px; margin-top: 10px; border-radius: 5px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>ZKP Authentication</h1>
+    <h2>Register</h2>
+    <input id="reg-user" placeholder="Username">
+    <input id="reg-pass" type="password" placeholder="Password">
+    <button id="reg-btn">Register</button>
+
+    <h2>Login</h2>
+    <input id="login-user" placeholder="Username">
+    <input id="login-pass" type="password" placeholder="Password">
+    <button id="login-btn">Login</button>
+
+    <div id="log"></div>
+  </div>
+
+  <!-- Load ZKP Loader (loads wasm + worker) -->
+  <script type="module" src="zkp-loader.js"></script>
+</body>
+</html>
+

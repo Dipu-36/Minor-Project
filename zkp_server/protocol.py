@@ -1,69 +1,99 @@
-import time
-import uuid
-from . import crypto_utils as crypto
-from .config import CHALLENGE_TTL_SECONDS, GROUP_ORDER
+"""
+protocol.py
+------------
+Implements the core Schnorr Zero Knowledge Proof protocol flow:
+- Challenge generation
+- Proof verification
 
-class ZKPProtocol:
-    def __init__(self, storage):
-        self.storage = storage
-    
-    def generate_challenge(self, user_id: str, t_b64: str, client_ip: str) -> dict:
-        # Validate t format
-        try:
-            t_bytes = crypto.base64url_decode(t_b64)
-            if len(t_bytes) != 32:  # Ed25519 point size
-                raise ValueError("Invalid t format")
-        except:
-            raise ValueError("Invalid t encoding")
-        
-        session_id = str(uuid.uuid4())
-        expires_at = int(time.time()) + CHALLENGE_TTL_SECONDS
-        
-        # Generate challenge: H(t || user_id || session_id || timestamp)
-        challenge_data = t_bytes + user_id.encode() + session_id.encode() + str(expires_at).encode()
-        challenge_hash = crypto.sha256(challenge_data)
-        
-        # Reduce to scalar mod group order
-        challenge_int = crypto.bytes_to_int(challenge_hash) % GROUP_ORDER
-        challenge_bytes = crypto.int_to_bytes(challenge_int)
-        challenge_b64 = crypto.base64url_encode(challenge_bytes)
-        
-        self.storage.store_session(session_id, user_id, t_b64, challenge_b64, expires_at, client_ip)
-        
-        return {
-            'session_id': session_id,
-            'c': challenge_b64,
-            'expires_at': expires_at
-        }
-    
-    def verify_proof(self, user_id: str, session_id: str, s_b64: str) -> bool:
-        session = self.storage.get_session(session_id)
-        if not session:
-            return False
-        
-        if session['used']:
-            return False
-        
-        if time.time() > session['expires_at']:
-            return False
-        
-        if session['user_id'] != user_id:
-            return False
-        
-        try:
-            # Get verifier from storage
-            v_b64 = self.storage.get_verifier(user_id)
-            if not v_b64:
-                return False
-            
-            # In a real implementation, you would verify:
-            # g^s == t * v^c  (elliptic curve operations)
-            # For now, we'll assume the WASM does this verification
-            # This is where you'd implement the actual curve math
-            
-            # Mark session as used
-            self.storage.mark_session_used(session_id)
-            return True
-            
-        except Exception:
-            return False
+Uses Ed25519 curve math via PyNaCl bindings.
+"""
+
+import base64
+import os
+import time
+from hashlib import sha512
+from nacl.bindings import (
+    crypto_scalarmult_ed25519_base_noclamp,
+    crypto_scalarmult_ed25519_noclamp,
+    crypto_core_ed25519_add,
+)
+from zkp_server import storage, config
+
+
+# ===========================================================
+# Helper: Generate challenge bound to server identity
+# ===========================================================
+def generate_challenge(user_id: str, t_b64: str, session_id: str, expires_at: int) -> bytes:
+    """
+    Generates challenge c = SHA512(t || user_id || session_id || server_fp || expires_at)
+    Binds challenge to server fingerprint for MITM resistance.
+    """
+    t_bytes = base64.urlsafe_b64decode(t_b64 + "==")
+    server_fp = config.SERVER_FINGERPRINT or b""
+    data = t_bytes + user_id.encode() + session_id.encode() + server_fp + str(expires_at).encode()
+    return sha512(data).digest()[:32]  # 32-byte challenge
+
+
+# ===========================================================
+# Proof verification: g^s == t * v^c
+# ===========================================================
+def verify_proof(v_b64: str, t_b64: str, c_bytes: bytes, s_b64: str) -> bool:
+    """
+    Verifies Schnorr proof for Ed25519 curve:
+      g^s == t * v^c
+    """
+    try:
+        v = base64.urlsafe_b64decode(v_b64 + "==")
+        t = base64.urlsafe_b64decode(t_b64 + "==")
+        s = base64.urlsafe_b64decode(s_b64 + "==")
+
+        # g^s
+        gs = crypto_scalarmult_ed25519_base_noclamp(s)
+
+        # v^c
+        vc = crypto_scalarmult_ed25519_noclamp(c_bytes, v)
+
+        # expected = t * v^c
+        expected = crypto_core_ed25519_add(t, vc)
+
+        return gs == expected
+    except Exception as e:
+        print(f"[verify_proof] Verification error: {e}")
+        return False
+
+
+# ===========================================================
+# Main login flow (server-side)
+# ===========================================================
+def initiate_login(user_id: str, t_b64: str):
+    """
+    Called when client sends t = g^r.
+    Stores session with challenge c and expiration.
+    """
+    session_id = os.urandom(16).hex()
+    expires_at = int(time.time()) + config.CHALLENGE_TTL
+    c_bytes = generate_challenge(user_id, t_b64, session_id, expires_at)
+    storage.store_session(user_id, session_id, t_b64, c_bytes, expires_at)
+    return {"challenge": base64.urlsafe_b64encode(c_bytes).decode(), "session_id": session_id}
+
+
+def complete_login(user_id: str, session_id: str, s_b64: str) -> bool:
+    """
+    Called when client responds with s.
+    Verifies stored session, loads v, t, c, checks proof.
+    """
+    session = storage.load_session(session_id)
+    if not session:
+        return False
+
+    v_b64, t_b64, c_bytes, expires_at = session
+
+    if int(time.time()) > expires_at:
+        print("[complete_login] Challenge expired.")
+        return False
+
+    ok = verify_proof(v_b64, t_b64, c_bytes, s_b64)
+    if ok:
+        storage.mark_session_used(session_id)
+    return ok
+
