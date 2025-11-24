@@ -88,6 +88,22 @@ async function deriveScalar(password, saltBase64) {
 }
 
 // ===========================
+// Helper: base64url decode -> Uint8Array
+// ===========================
+// Converts base64url (urlsafe, possibly without padding) to a Uint8Array.
+// Example: "Abc-_xyz" -> Uint8Array([...])
+function decodeB64UrlToUint8(b64url) {
+  // Convert url-safe chars to standard base64 chars
+  let b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  // Add padding if necessary
+  while (b64.length % 4 !== 0) b64 += '=';
+  const raw = atob(b64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+// ===========================
 // Registration
 // ===========================
 async function registerUser() {
@@ -137,7 +153,9 @@ async function loginUser() {
     body: JSON.stringify({ user_id: user, t }),
   });
   const { challenge, session_id } = await res1.json();
-  const challengeBytes = Uint8Array.from(atob(challenge), c => c.charCodeAt(0));
+
+  // FIXED: correctly decode URL-safe base64 challenge to Uint8Array
+  const challengeBytes = decodeB64UrlToUint8(challenge);
 
   // Step 3: compute s = r + c*x
   const sB64 = await new Promise(resolve => {
@@ -161,4 +179,3 @@ document.getElementById("reg-btn").onclick = registerUser;
 document.getElementById("login-btn").onclick = loginUser;
 
 log("🔧 Frontend loaded");
-
