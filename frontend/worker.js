@@ -1,17 +1,25 @@
-/*
-worker.js
-----------
-Handles WebAssembly crypto operations off the main thread.
-Receives Argon2id scalar from zkp-loader.js and calls into crypto.wasm.
-*/
+// root/frontend/worker.js
+// Worker that loads crypto.wasm and exposes raw-byte -> base64url handling
 
 let wasmExports;
 let memory;
+
+function toB64Url(bytes) {
+  // bytes: Uint8Array
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  const b64 = btoa(binary);
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 
 async function initWasm() {
   const response = await fetch("crypto.wasm");
   const buffer = await response.arrayBuffer();
   const module = await WebAssembly.compile(buffer);
+  // Provide imports if required by your wasm (e.g., env) — empty for now
   const instance = await WebAssembly.instantiate(module, {});
   wasmExports = instance.exports;
   memory = wasmExports.memory;
@@ -23,29 +31,36 @@ self.onmessage = async (event) => {
 
   if (!wasmExports) await initWasm();
 
+  // Helper to copy ArrayBuffer/Uint8Array into wasm heap
+  function allocAndWrite(bytes) {
+    const ptr = wasmExports._malloc(bytes.length);
+    new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
+    return ptr;
+  }
+
   if (cmd === "compute_v") {
-    const ptr = wasmExports._malloc(scalar.length);
-    new Uint8Array(memory.buffer, ptr, scalar.length).set(scalar);
-    const outPtr = wasmExports._malloc(128);
-
-    const rc = wasmExports._compute_v_from_scalar(ptr, scalar.length, outPtr, 128);
-    const resultBytes = new Uint8Array(memory.buffer, outPtr, 64);
-    const vB64 = new TextDecoder().decode(resultBytes).replace(/\0/g, "");
-
+    // scalar is Uint8Array
+    const ptr = allocAndWrite(scalar);
+    const outPtr = wasmExports._malloc(64); // allocate output buffer (size depends on implementation)
+    const rc = wasmExports._compute_v_from_scalar(ptr, scalar.length, outPtr, 64);
+    // rc should be number of bytes written; if not, we assume 32 or 64
+    const written = rc > 0 ? rc : 32;
+    const resultBytes = new Uint8Array(memory.buffer, outPtr, written);
+    const vB64 = toB64Url(resultBytes);
     wasmExports._free(ptr);
     wasmExports._free(outPtr);
     postMessage({ v: vB64 });
   }
 
   else if (cmd === "initiate_login") {
-    const ptr = wasmExports._malloc(scalar.length);
-    new Uint8Array(memory.buffer, ptr, scalar.length).set(scalar);
-    const outPtr = wasmExports._malloc(128);
-    const statePtr = wasmExports._malloc(4);
+    const ptr = allocAndWrite(scalar);
+    const outPtr = wasmExports._malloc(64);
+    const statePtr = wasmExports._malloc(4); // wasm returns an integer handle by writing to this ptr
 
-    const rc = wasmExports._initiate_login_from_scalar(ptr, scalar.length, outPtr, 128, statePtr);
-    const tBytes = new Uint8Array(memory.buffer, outPtr, 64);
-    const tB64 = new TextDecoder().decode(tBytes).replace(/\0/g, "");
+    const rc = wasmExports._initiate_login_from_scalar(ptr, scalar.length, outPtr, 64, statePtr);
+    const written = rc > 0 ? rc : 32;
+    const tBytes = new Uint8Array(memory.buffer, outPtr, written);
+    const tB64 = toB64Url(tBytes);
     const state_id = new DataView(memory.buffer).getUint32(statePtr, true);
 
     wasmExports._free(ptr);
@@ -55,17 +70,15 @@ self.onmessage = async (event) => {
   }
 
   else if (cmd === "compute_s") {
-    const cPtr = wasmExports._malloc(challenge.length);
-    new Uint8Array(memory.buffer, cPtr, challenge.length).set(challenge);
-    const outPtr = wasmExports._malloc(128);
-
-    const rc = wasmExports._compute_response_from_state(state_id, cPtr, challenge.length, outPtr, 128);
-    const sBytes = new Uint8Array(memory.buffer, outPtr, 64);
-    const sB64 = new TextDecoder().decode(sBytes).replace(/\0/g, "");
+    const cPtr = allocAndWrite(challenge);
+    const outPtr = wasmExports._malloc(64);
+    const rc = wasmExports._compute_response_from_state(state_id, cPtr, challenge.length, outPtr, 64);
+    const written = rc > 0 ? rc : 32;
+    const sBytes = new Uint8Array(memory.buffer, outPtr, written);
+    const sB64 = toB64Url(sBytes);
 
     wasmExports._free(cPtr);
     wasmExports._free(outPtr);
     postMessage({ s: sB64 });
   }
 };
-
