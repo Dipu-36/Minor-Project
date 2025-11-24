@@ -66,6 +66,23 @@ def login_finish():
     if ok:
         return jsonify({"status": "success"})
     return jsonify({"status": "failed"}), 403
+# --- add to zkp_server/server.py ---
+@app.route("/user_salt", methods=["GET"])
+def user_salt():
+    """
+    Return the salt for a given user.
+    Query: /user_salt?user=<user_id>
+    Response: { "salt": "<base64 salt>" } or 404
+    """
+    user = request.args.get("user") or request.args.get("user_id")
+    if not user:
+        return jsonify({"error": "missing user"}), 400
+    row = storage.get_user(user)
+    if not row:
+        return jsonify({"error": "not found"}), 404
+    verifier, salt = row
+    return jsonify({"salt": salt})
+# -------------------------------
 
 
 if __name__ == "__main__":
