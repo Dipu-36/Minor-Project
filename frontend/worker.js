@@ -1,8 +1,15 @@
 // root/frontend/worker.js
-// Worker that loads crypto.wasm and exposes raw-byte -> base64url handling
+// Worker that loads crypto.js (Emscripten glue + wasm) and exposes raw-byte -> base64url handling
 
-let wasmExports;
-let memory;
+// IMPORTANT: crypto.js (EMCC modularized output) must be available next to this worker.
+// It should export the factory function named `createCryptoModule` (set via -s EXPORT_NAME).
+// The build script I suggested uses: -s MODULARIZE=1 -s EXPORT_NAME="createCryptoModule"
+
+importScripts("crypto.js"); // loads the EMCC glue which defines createCryptoModule()
+
+let ModulePromise = null;
+let Module = null;       // Emscripten Module instance
+let HEAPU8 = null;       // view into wasm memory
 
 function toB64Url(bytes) {
   // bytes: Uint8Array
@@ -16,69 +23,79 @@ function toB64Url(bytes) {
 }
 
 async function initWasm() {
-  const response = await fetch("crypto.wasm");
-  const buffer = await response.arrayBuffer();
-  const module = await WebAssembly.compile(buffer);
-  // Provide imports if required by your wasm (e.g., env) — empty for now
-  const instance = await WebAssembly.instantiate(module, {});
-  wasmExports = instance.exports;
-  memory = wasmExports.memory;
-  console.log("✅ WASM loaded in worker");
+  if (!ModulePromise) {
+    // createCryptoModule() is the factory emitted by Emscripten when MODULARIZE=1
+    ModulePromise = createCryptoModule(); // returns a Promise that resolves to the Module
+  }
+
+  Module = await ModulePromise;
+  HEAPU8 = Module.HEAPU8;
+  console.log("✅ Emscripten WASM module ready in worker");
+}
+
+// Helper to copy ArrayBuffer/Uint8Array into wasm heap
+function allocAndWrite(bytes) {
+  const ptr = Module._malloc(bytes.length);
+  // Reacquire HEAPU8 in case memory grew
+  HEAPU8 = Module.HEAPU8;
+  HEAPU8.set(bytes, ptr);
+  return ptr;
+}
+
+// Helper to read bytes from heap (ptr -> Uint8Array copy)
+function readHeapBytes(ptr, len) {
+  HEAPU8 = Module.HEAPU8;
+  return new Uint8Array(HEAPU8.subarray(ptr, ptr + len));
 }
 
 self.onmessage = async (event) => {
   const { cmd, scalar, challenge, state_id } = event.data;
 
-  if (!wasmExports) await initWasm();
-
-  // Helper to copy ArrayBuffer/Uint8Array into wasm heap
-  function allocAndWrite(bytes) {
-    const ptr = wasmExports._malloc(bytes.length);
-    new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
-    return ptr;
-  }
+  if (!Module) await initWasm();
 
   if (cmd === "compute_v") {
     // scalar is Uint8Array
     const ptr = allocAndWrite(scalar);
-    const outPtr = wasmExports._malloc(64); // allocate output buffer (size depends on implementation)
-    const rc = wasmExports._compute_v_from_scalar(ptr, scalar.length, outPtr, 64);
-    // rc should be number of bytes written; if not, we assume 32 or 64
+    const outPtr = Module._malloc(64); // allocate output buffer (size depends on implementation)
+    const rc = Module._compute_v_from_scalar(ptr, scalar.length, outPtr, 64);
     const written = rc > 0 ? rc : 32;
-    const resultBytes = new Uint8Array(memory.buffer, outPtr, written);
+    const resultBytes = readHeapBytes(outPtr, written);
     const vB64 = toB64Url(resultBytes);
-    wasmExports._free(ptr);
-    wasmExports._free(outPtr);
+    Module._free(ptr);
+    Module._free(outPtr);
     postMessage({ v: vB64 });
   }
 
   else if (cmd === "initiate_login") {
     const ptr = allocAndWrite(scalar);
-    const outPtr = wasmExports._malloc(64);
-    const statePtr = wasmExports._malloc(4); // wasm returns an integer handle by writing to this ptr
+    const outPtr = Module._malloc(64);
+    const statePtr = Module._malloc(4); // wasm writes a 32-bit state id here
 
-    const rc = wasmExports._initiate_login_from_scalar(ptr, scalar.length, outPtr, 64, statePtr);
+    const rc = Module._initiate_login_from_scalar(ptr, scalar.length, outPtr, 64, statePtr);
     const written = rc > 0 ? rc : 32;
-    const tBytes = new Uint8Array(memory.buffer, outPtr, written);
+    const tBytes = readHeapBytes(outPtr, written);
     const tB64 = toB64Url(tBytes);
-    const state_id = new DataView(memory.buffer).getUint32(statePtr, true);
+    // read state_id from the heap (little-endian)
+    HEAPU8 = Module.HEAPU8;
+    const dv = new DataView(HEAPU8.buffer, statePtr, 4);
+    const state_id_val = dv.getUint32(0, true);
 
-    wasmExports._free(ptr);
-    wasmExports._free(outPtr);
-    wasmExports._free(statePtr);
-    postMessage({ t: tB64, state_id });
+    Module._free(ptr);
+    Module._free(outPtr);
+    Module._free(statePtr);
+    postMessage({ t: tB64, state_id: state_id_val });
   }
 
   else if (cmd === "compute_s") {
     const cPtr = allocAndWrite(challenge);
-    const outPtr = wasmExports._malloc(64);
-    const rc = wasmExports._compute_response_from_state(state_id, cPtr, challenge.length, outPtr, 64);
+    const outPtr = Module._malloc(64);
+    const rc = Module._compute_response_from_state(state_id, cPtr, challenge.length, outPtr, 64);
     const written = rc > 0 ? rc : 32;
-    const sBytes = new Uint8Array(memory.buffer, outPtr, written);
+    const sBytes = readHeapBytes(outPtr, written);
     const sB64 = toB64Url(sBytes);
 
-    wasmExports._free(cPtr);
-    wasmExports._free(outPtr);
+    Module._free(cPtr);
+    Module._free(outPtr);
     postMessage({ s: sB64 });
   }
 };
