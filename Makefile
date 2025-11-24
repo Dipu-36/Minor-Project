@@ -11,6 +11,8 @@ SCRIPT_DIR := scripts
 SERVER_DIR := zkp_server
 
 DB := zkp_auth.db
+CERT := $(SERVER_DIR)/server.crt
+KEY  := $(SERVER_DIR)/server.key
 
 # ==========================================================
 # Local Development
@@ -24,7 +26,17 @@ venv:
 
 init-db: venv
 	@echo "🗃 Initializing local database..."
-	@echo "from zkp_server.storage import init_db; init_db(); print('DB initialized locally ✔')" | venv/bin/python3
+	@echo "from zkp_server.storage import init_db; init_db(); print('DB initialized ✔')" | venv/bin/python3
+
+gen-tls:
+	@echo "🔐 Generating TLS certificates..."
+	@test -f $(CERT) && echo "✔ TLS cert already exists" || \
+	openssl req -x509 -nodes -newkey rsa:2048 \
+	    -keyout $(KEY) \
+	    -out $(CERT) \
+	    -days 365 \
+	    -subj "/CN=localhost"
+	@echo "✔ TLS Certificates ready at $(SERVER_DIR)/"
 
 gen-keys:
 	@echo "🔑 Generating RSA keys for WASM signature..."
@@ -34,7 +46,10 @@ build-wasm:
 	@echo "🛠 Building WebAssembly module..."
 	cd $(WASM_DIR) && bash build.sh
 
-run-local: venv init-db build-wasm gen-keys
+setup-all: venv gen-tls init-db build-wasm gen-keys
+	@echo "🎉 Full environment setup complete!"
+
+run-local: setup-all
 	@echo "🚀 Running local HTTPS server..."
 	cd $(SERVER_DIR) && ../venv/bin/python3 server.py
 
@@ -71,4 +86,5 @@ clean:
 	rm -rf $(WASM_DIR)/__pycache__
 	rm -rf */__pycache__
 
-.PHONY: venv run-local docker-build docker-run docker-shell docker-clean clean init-db gen-keys build-wasm
+.PHONY: venv run-local docker-build docker-run docker-shell docker-clean clean \
+        init-db gen-keys build-wasm gen-tls setup-all
