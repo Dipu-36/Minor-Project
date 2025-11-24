@@ -38,6 +38,7 @@ function allocAndWrite(bytes) {
   const ptr = Module._malloc(bytes.length);
   // Reacquire HEAPU8 in case memory grew
   HEAPU8 = Module.HEAPU8;
+  if (!HEAPU8) throw new Error("HEAPU8 not available on Module");
   HEAPU8.set(bytes, ptr);
   return ptr;
 }
@@ -49,53 +50,76 @@ function readHeapBytes(ptr, len) {
 }
 
 self.onmessage = async (event) => {
-  const { cmd, scalar, challenge, state_id } = event.data;
+  const { cmd, scalar, challenge, state_id, _id } = event.data;
 
   if (!Module) await initWasm();
 
   if (cmd === "compute_v") {
-    // scalar is Uint8Array
-    const ptr = allocAndWrite(scalar);
-    const outPtr = Module._malloc(64); // allocate output buffer (size depends on implementation)
-    const rc = Module._compute_v_from_scalar(ptr, scalar.length, outPtr, 64);
-    const written = rc > 0 ? rc : 32;
-    const resultBytes = readHeapBytes(outPtr, written);
-    const vB64 = toB64Url(resultBytes);
-    Module._free(ptr);
-    Module._free(outPtr);
-    postMessage({ v: vB64 });
+    try {
+      console.log("worker: compute_v called, scalar len:", scalar ? scalar.length : "null");
+      const ptr = allocAndWrite(scalar);
+      const outPtr = Module._malloc(64); // allocate output buffer (size depends on implementation)
+      const rc = Module._compute_v_from_scalar(ptr, scalar.length, outPtr, 64);
+      const written = rc > 0 ? rc : 32;
+      const resultBytes = readHeapBytes(outPtr, written);
+      const vB64 = toB64Url(resultBytes);
+      console.log("worker: compute_v produced v len:", resultBytes.length);
+      Module._free(ptr);
+      Module._free(outPtr);
+      postMessage({ v: vB64, _id });
+    } catch (err) {
+      console.error("worker compute_v error:", err);
+      postMessage({ error: String(err), _id });
+    }
   }
 
   else if (cmd === "initiate_login") {
-    const ptr = allocAndWrite(scalar);
-    const outPtr = Module._malloc(64);
-    const statePtr = Module._malloc(4); // wasm writes a 32-bit state id here
+    try {
+      console.log("worker: initiate_login called, scalar len:", scalar ? scalar.length : "null");
+      const ptr = allocAndWrite(scalar);
+      const outPtr = Module._malloc(64);
+      const statePtr = Module._malloc(4); // wasm writes a 32-bit state id here
 
-    const rc = Module._initiate_login_from_scalar(ptr, scalar.length, outPtr, 64, statePtr);
-    const written = rc > 0 ? rc : 32;
-    const tBytes = readHeapBytes(outPtr, written);
-    const tB64 = toB64Url(tBytes);
-    // read state_id from the heap (little-endian)
-    HEAPU8 = Module.HEAPU8;
-    const dv = new DataView(HEAPU8.buffer, statePtr, 4);
-    const state_id_val = dv.getUint32(0, true);
+      const rc = Module._initiate_login_from_scalar(ptr, scalar.length, outPtr, 64, statePtr);
+      const written = rc > 0 ? rc : 32;
+      const tBytes = readHeapBytes(outPtr, written);
+      const tB64 = toB64Url(tBytes);
+      // read state_id from the heap (little-endian)
+      HEAPU8 = Module.HEAPU8;
+      const dv = new DataView(HEAPU8.buffer, statePtr, 4);
+      const state_id_val = dv.getUint32(0, true);
 
-    Module._free(ptr);
-    Module._free(outPtr);
-    Module._free(statePtr);
-    postMessage({ t: tB64, state_id: state_id_val });
+      console.log("worker: initiate_login produced t len:", tBytes.length, "state_id:", state_id_val);
+
+      Module._free(ptr);
+      Module._free(outPtr);
+      Module._free(statePtr);
+      postMessage({ t: tB64, state_id: state_id_val, _id });
+    } catch (err) {
+      console.error("worker initiate_login error:", err);
+      postMessage({ error: String(err), _id });
+    }
   }
 
   else if (cmd === "compute_s") {
-    const cPtr = allocAndWrite(challenge);
-    const outPtr = Module._malloc(64);
-    const rc = Module._compute_response_from_state(state_id, cPtr, challenge.length, outPtr, 64);
-    const written = rc > 0 ? rc : 32;
-    const sBytes = readHeapBytes(outPtr, written);
-    const sB64 = toB64Url(sBytes);
-
-    Module._free(cPtr);
-    Module._free(outPtr);
-    postMessage({ s: sB64 });
+    try {
+      console.log("worker: compute_s called, state_id:", state_id, "challenge len:", challenge ? challenge.length : "null");
+      const cPtr = allocAndWrite(challenge);
+      const outPtr = Module._malloc(64);
+      const rc = Module._compute_response_from_state(state_id, cPtr, challenge.length, outPtr, 64);
+      const written = rc > 0 ? rc : 32;
+      const sBytes = readHeapBytes(outPtr, written);
+      const sB64 = toB64Url(sBytes);
+      console.log("worker: compute_s produced s len:", sBytes.length);
+      Module._free(cPtr);
+      Module._free(outPtr);
+      postMessage({ s: sB64, _id });
+    } catch (err) {
+      console.error("worker compute_s error:", err);
+      postMessage({ error: String(err), _id });
+    }
+  } else {
+    console.warn("worker: unknown cmd", cmd);
+    postMessage({ error: "unknown_cmd", _id });
   }
 };

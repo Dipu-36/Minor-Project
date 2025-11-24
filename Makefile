@@ -51,7 +51,8 @@ setup-all: venv gen-tls init-db build-wasm gen-keys
 
 run-local: setup-all
 	@echo "🚀 Running local HTTPS server..."
-	cd $(SERVER_DIR) && ../venv/bin/python3 server.py
+	# run as a package module so imports like `from zkp_server import ...` succeed
+	@./venv/bin/python3 -m zkp_server.server
 
 # ==========================================================
 # Docker Build & Run

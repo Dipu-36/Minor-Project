@@ -1,82 +1,60 @@
-#include "crypto.h"
+// --- in wasm_crypto/state.c: replace old functions with these ----
+#include "crypto.h"   // ensure zkp_ret_t and prototypes available
 #include <string.h>
+#include <stdint.h>
+#include <stdlib.h>
 
-// Base64url encoding table
-static const char base64url_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+/*
+* Match the prototype in crypto.h:
+* zkp_ret_t base64url_encode(const uint8_t *input, size_t in_len, char *output, size_t out_size, int pad);
+*/
+zkp_ret_t base64url_encode(const uint8_t *input, size_t in_len, char *output, size_t out_size, int pad) {
+    // Simple, robust base64url encoder using a local non-allocating approach.
+    // This implementation is compact and returns non-zero on error.
+    static const char *b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    size_t i = 0, o = 0;
+    uint32_t acc = 0;
+    int bits = 0;
 
-int base64url_encode(const uint8_t* data, size_t len, char* output, size_t out_len) {
-    if (out_len < (len * 4 / 3 + 4)) {
-        return -1; // Output buffer too small
-    }
-    
-    size_t out_index = 0;
-    for (size_t i = 0; i < len; i += 3) {
-        uint32_t triple = (data[i] << 16);
-        if (i + 1 < len) triple |= (data[i + 1] << 8);
-        if (i + 2 < len) triple |= data[i + 2];
+    // worst-case output length for base64 without padding = ceil(in_len*8/6)
+    size_t needed = (in_len * 8 + 5) / 6;
+    if (out_size < needed + 1) return -1; // insufficient output buffer
 
-        output[out_index++] = base64url_table[(triple >> 18) & 0x3F];
-        output[out_index++] = base64url_table[(triple >> 12) & 0x3F];
-        
-        if (i + 1 < len) {
-            output[out_index++] = base64url_table[(triple >> 6) & 0x3F];
-        } else {
-            output[out_index++] = '=';
-        }
-        
-        if (i + 2 < len) {
-            output[out_index++] = base64url_table[triple & 0x3F];
-        } else {
-            output[out_index++] = '=';
+    while (i < in_len) {
+        acc = (acc << 8) | input[i++];
+        bits += 8;
+        while (bits >= 6) {
+            bits -= 6;
+            uint8_t idx = (acc >> bits) & 0x3F;
+            output[o++] = b64[idx];
         }
     }
-    output[out_index] = '\0';
+    if (bits > 0) {
+        // flush remaining bits (pad with zeros on the right)
+        uint8_t idx = (acc << (6 - bits)) & 0x3F;
+        output[o++] = b64[idx];
+    }
+
+    if (pad) {
+        // compute standard base64 padding to multiple of 4 characters (if requested)
+        while (o % 4 != 0) {
+            if (o + 1 >= out_size) return -1;
+            output[o++] = '=';
+        }
+    }
+
+    if (o >= out_size) return -1;
+    output[o] = '\0';
     return 0;
 }
 
-int base64url_decode(const char* input, uint8_t* output, size_t out_len) {
-    size_t len = strlen(input);
-    if (out_len < len * 3 / 4) {
-        return -1; // Output buffer too small
-    }
-    
-    size_t out_index = 0;
-    for (size_t i = 0; i < len; i += 4) {
-        uint32_t quadruple = 0;
-        int pad_count = 0;
-        
-        for (int j = 0; j < 4; j++) {
-            if (i + j >= len) {
-                pad_count++;
-                continue;
-            }
-            
-            char c = input[i + j];
-            if (c == '=') {
-                pad_count++;
-                continue;
-            }
-            
-            const char* pos = strchr(base64url_table, c);
-            if (!pos) return -1; // Invalid character
-            
-            quadruple |= (uint32_t)(pos - base64url_table) << (18 - j * 6);
-        }
-        
-        output[out_index++] = (quadruple >> 16) & 0xFF;
-        if (pad_count < 2) {
-            output[out_index++] = (quadruple >> 8) & 0xFF;
-        }
-        if (pad_count < 1) {
-            output[out_index++] = quadruple & 0xFF;
-        }
-    }
+/*
+* Match prototype in crypto.h:
+* zkp_ret_t zero_memory(void *buf, size_t len);
+*/
+zkp_ret_t zero_memory(void *buf, size_t len) {
+    if (!buf) return -1;
+    volatile unsigned char *p = (volatile unsigned char *)buf;
+    while (len--) *p++ = 0;
     return 0;
-}
-
-void zero_memory(void* ptr, size_t len) {
-    volatile uint8_t* p = (volatile uint8_t*)ptr;
-    while (len--) {
-        *p++ = 0;
-    }
 }

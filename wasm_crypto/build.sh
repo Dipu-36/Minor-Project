@@ -1,36 +1,27 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUT_DIR="$SCRIPT_DIR"
-JS_OUT="$OUT_DIR/crypto.js"
+set -e
 
-ED_SRCS=(
-  "$SCRIPT_DIR/ed25519_ref/fe.c"
-  "$SCRIPT_DIR/ed25519_ref/ge.c"
-  "$SCRIPT_DIR/ed25519_ref/sc.c"
-  "$SCRIPT_DIR/ed25519_ref/sha512.c"
-  "$SCRIPT_DIR/ed25519_ref/sign.c"
-  "$SCRIPT_DIR/ed25519_ref/verify.c"
-  "$SCRIPT_DIR/ed25519_ref/keypair.c"
-  "$SCRIPT_DIR/ed25519_ref/key_exchange.c"
-  "$SCRIPT_DIR/ed25519_ref/add_scalar.c"
-)
+echo "[BUILD] Cleaning old build..."
+rm -f crypto.wasm crypto.js
 
-WRAPPER_SRCS=(
-  "$SCRIPT_DIR/crypto.c"
-  "$SCRIPT_DIR/rand_bridge.c"
-)
-ALL_SRCS=("${WRAPPER_SRCS[@]}" "${ED_SRCS[@]}")
+echo "[BUILD] Compiling WebAssembly..."
 
-emcc "${ALL_SRCS[@]}" \
+emcc \
+  crypto.c \
+  state.c \
+  rand_bridge.c \
+  ed25519_ref/fe.c \
+  ed25519_ref/ge.c \
+  ed25519_ref/sc.c \
+  ed25519_ref/sha512.c \
+  \
   -O3 \
   -s WASM=1 \
-  -s ALLOW_MEMORY_GROWTH=1 \
   -s MODULARIZE=1 \
-  -s EXPORT_NAME=createCryptoModule \
-  -s EXPORTED_FUNCTIONS="['_compute_v_from_scalar','_initiate_login_from_scalar','_compute_response_from_state','_free_state','_malloc','_free']" \
-  -s EXPORTED_RUNTIME_METHODS='["cwrap","ccall","UTF8ToString"]' \
-  -o "$JS_OUT"
+  -s EXPORT_NAME="createCryptoModule" \
+  -s EXPORTED_FUNCTIONS="['_compute_v_from_scalar','_initiate_login_from_scalar','_compute_response_from_state','_malloc','_free']" \
+  -s EXPORTED_RUNTIME_METHODS="['HEAPU8']" \
+  -o crypto.js
 
-echo "Build complete: $JS_OUT and crypto.wasm"
+echo "[BUILD] Build complete: crypto.js + crypto.wasm"
