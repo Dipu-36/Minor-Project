@@ -166,7 +166,7 @@ async function registerUser() {
     const password = document.getElementById("reg-pass").value;
 
     if (!user || !password) {
-      log("❌ username or password empty");
+      log(" username or password empty");
       return;
     }
 
@@ -196,7 +196,7 @@ async function registerUser() {
 
     // Final guard: if it's still an object, stringify for debug (but avoid sending raw object)
     if (typeof v !== "string") {
-      log("❌ compute_v returned non-string. coercing to JSON string for debug.");
+      log(" compute_v returned non-string. coercing to JSON string for debug.");
       v = JSON.stringify(v);
     }
 
@@ -216,7 +216,7 @@ async function registerUser() {
     log("Registration response body: " + body);
   } catch (err) {
     console.error("registerUser error", err);
-    log("❌ Registration failed: " + (err && err.message));
+    log("Registration failed: " + (err && err.message));
   }
 }
 
@@ -230,7 +230,7 @@ async function loginUser() {
     const password = document.getElementById("login-pass").value;
 
     if (!user || !password) {
-      log("❌ login username or password empty");
+      log(" login username or password empty");
       return;
     }
 
@@ -238,7 +238,7 @@ async function loginUser() {
     log("Fetching salt for user: " + user);
     const userRes = await fetch(`${SERVER_URL}/user_salt?user=${user}`);
     if (!userRes.ok) {
-      log("❌ Failed to get salt: " + userRes.status);
+      log(" Failed to get salt: " + userRes.status);
       return;
     }
     const { salt } = await userRes.json();
@@ -263,7 +263,7 @@ async function loginUser() {
     });
 
     if (!res1.ok) {
-      log("❌ server rejected t: " + res1.status);
+      log("server rejected t: " + res1.status);
       const txt = await res1.text();
       log("server body: " + txt);
       return;
@@ -300,7 +300,7 @@ async function loginUser() {
     log("Login response body: " + body);
   } catch (err) {
     console.error("loginUser error", err);
-    log("❌ Login failed: " + (err && err.message));
+    log("Login failed: " + (err && err.message));
   }
 }
 

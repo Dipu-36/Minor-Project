@@ -1,109 +1,3 @@
-# Makefile  Automated Build System for ZKP Auth Framework
-
-IMAGE_NAME := zkp-framework
-CONTAINER_NAME := zkp-framework-dev
-PORT := 8443
-
-WASM_DIR := wasm_crypto
-SCRIPT_DIR := scripts
-SERVER_DIR := zkp_server
-
-DB := zkp_auth.db
-CERT := $(SERVER_DIR)/server.crt
-KEY  := $(SERVER_DIR)/server.key
-
-# Local Development
-venv:
-	@echo " Creating virtual environment..."
-	@test -d venv || python3 -m venv venv
-	@venv/bin/pip install --upgrade pip
-	@venv/bin/pip install flask pynacl argon2-cffi
-
-init-db: venv
-	@echo " Initializing local database..."
-	@echo "from zkp_server.storage import init_db; init_db(); print('DB initialized ✔')" | venv/bin/python3
-
-gen-tls:
-	@echo " Generating TLS certificates..."
-	@test -f $(CERT) && echo "✔ TLS cert already exists" || \
-	openssl req -x509 -nodes -newkey rsa:2048 \
-	    -keyout $(KEY) \
-	    -out $(CERT) \
-	    -days 365 \
-	    -subj "/CN=localhost"
-	@echo "✔ TLS Certificates ready at $(SERVER_DIR)/"
-
-gen-keys:
-	@echo " Generating RSA keys for WASM signature..."
-	@bash $(SCRIPT_DIR)/sign_wasm.sh
-
-build-wasm:
-	@echo "🛠 Building WebAssembly module..."
-	cd $(WASM_DIR) && bash build.sh
-
-setup-all: venv gen-tls init-db build-wasm gen-keys
-	@echo " Full environment setup complete!"
-
-run-local: setup-all
-	@echo " Running local HTTPS server..."
-	# run as a package module so imports like `from zkp_server import ...` succeed
-	@./venv/bin/python3 -m zkp_server.server
-
-#show-db:
-#zkp_server/zkp_auth.db "SELECT user_id, salt, verifier FROM users;"
-
-# Docker Build & Run
-docker-build:
-	@echo " Building Docker image: $(IMAGE_NAME)"
-	docker build -t $(IMAGE_NAME) .
-
-docker-run:
-	@echo " Running Docker container on port $(PORT)..."
-	docker run --rm -p $(PORT):8443 --name $(CONTAINER_NAME) $(IMAGE_NAME)
-
-docker-shell:
-	@echo " Opening shell in container..."
-	docker exec -it $(CONTAINER_NAME) /bin/bash || \
-	docker run -it --rm --entrypoint /bin/bash $(IMAGE_NAME)
-
-docker-clean:
-	@echo " Cleaning Docker images..."
-	-docker rm -f $(CONTAINER_NAME) || true
-	-docker rmi $(IMAGE_NAME) || true
-
-
-#This command is for the cleanup
-clean:
-	@echo " Cleaning project..."
-	rm -rf venv $(WASM_DIR)/*.wasm $(WASM_DIR)/*.js $(WASM_DIR)/*.sig
-	rm -rf $(SERVER_DIR)/__pycache__
-	rm -rf $(WASM_DIR)/__pycache__
-	rm -rf */__pycache__
-
-#This command is to check the users in the Database
-db-users:
-	@echo "👤 Users in ZKP DB:"
-	@sqlite3 zkp_server/zkp_auth.db "SELECT user_id, salt, verifier FROM users;"
-
-db-sessions:
-	@echo " Session records:"
-	@sqlite3 zkp_server/zkp_auth.db "SELECT session_id, user_id, used, datetime(expires_at, 'unixepoch') FROM sessions;"
-
-db-full:
-	@echo "================ USERS ================"
-	@sqlite3 zkp_server/zkp_auth.db "SELECT user_id, salt, verifier FROM users;"
-	@echo ""
-	@echo "=============== SESSIONS =============="
-	@sqlite3 zkp_server/zkp_auth.db "SELECT * FROM sessions;"
-
-reset-db:
-	rm -f zkp_server/zkp_auth.db
-	python3 -c "from zkp_server.storage import init_db; init_db()"
-
-.PHONY: venv run-local docker-build docker-run docker-shell docker-clean clean \
-        init-db gen-keys build-wasm gen-tls setup-all
-
-# Commands for the windows users
 SHELL := powershell.exe
 .SHELLFLAGS := -NoProfile -NoLogo -ExecutionPolicy Bypass -Command
 .ONESHELL := true
@@ -129,7 +23,7 @@ REQ_PKGS := flask pynacl argon2-cffi
 .PHONY: venv requirements init-db gen-tls gen-keys build-wasm setup-all run-local \
 		docker-build docker-run docker-shell docker-clean clean reset-db db-users db-sessions db-full
 
-win-venv:
+venv:
 	if (-not (Test-Path '$(VENV_DIR)')) {
 		python -m venv $(VENV_DIR)
 		Write-Host 'Created virtual environment $(VENV_DIR)'
@@ -139,7 +33,7 @@ win-venv:
 
 	& $(VENV_PIP) install --upgrade pip
 
-win-requirements: venv
+requirements: venv
 	# Check installed packages inside the virtualenv and install missing ones
 	$missing = @()
 	foreach ($p in "$(REQ_PKGS)".Split(' ')) {
@@ -156,10 +50,10 @@ win-requirements: venv
 		Write-Host "All required packages are already installed."
 	}
 
-win-init-db: requirements
+init-db: requirements
 	& $(VENV_PY) -c "from zkp_server.storage import init_db; init_db(); print('DB initialized ✔')"
 
-win-gen-tls:
+gen-tls:
 	if (Test-Path '$(CERT)') {
 		Write-Host '✔ TLS cert already exists'
 		Exit 0
@@ -171,14 +65,14 @@ win-gen-tls:
 	openssl req -x509 -nodes -newkey rsa:2048 -keyout $(KEY) -out $(CERT) -days 365 -subj "/CN=localhost"
 	Write-Host "✔ TLS Certificates ready at $(SERVER_DIR)/"
 
-win-gen-keys:
+gen-keys:
 	if (-not (Get-Command bash -ErrorAction SilentlyContinue)) {
 		Write-Host 'Bash not available; cannot run sign_wasm.sh. Use WSL/Git Bash or run the script manually.'
 		Exit 1
 	}
 	bash -lc '"$(SCRIPT_DIR)/sign_wasm.sh"'
 
-win-build-wasm:
+build-wasm:
 	if (Get-Command bash -ErrorAction SilentlyContinue) {
 		bash -lc "cd $(WASM_DIR) && ./build.sh"
 	} else {
@@ -186,22 +80,22 @@ win-build-wasm:
 		Exit 1
 	}
 
-win-setup-all: requirements gen-tls init-db build-wasm gen-keys
+setup-all: requirements gen-tls init-db build-wasm gen-keys
 	Write-Host "Full environment setup complete!"
 
-win-run-local: setup-all
+run-local: setup-all
 	Write-Host "Running local HTTPS server..."
 	& $(VENV_PY) -m zkp_server.server
 
-win-docker-build:
+docker-build:
 	Write-Host "Building Docker image: $(IMAGE_NAME)"
 	docker build -t $(IMAGE_NAME) .
 
-win-docker-run:
+docker-run:
 	Write-Host "Running Docker container on port $(PORT)..."
 	docker run --rm -p $(PORT):8443 --name $(CONTAINER_NAME) $(IMAGE_NAME)
 
-win-docker-shell:
+docker-shell:
 	Write-Host "Opening shell in container (or run new one if not running)..."
 	try {
 		docker exec -it $(CONTAINER_NAME) /bin/bash
@@ -209,27 +103,27 @@ win-docker-shell:
 		docker run -it --rm --entrypoint /bin/bash $(IMAGE_NAME)
 	}
 
-win-docker-clean:
+docker-clean:
 	Write-Host "Cleaning Docker images..."
 	try { docker rm -f $(CONTAINER_NAME) } catch { }
 	try { docker rmi $(IMAGE_NAME) } catch { }
 
-win-clean:
+clean:
 	Write-Host "Cleaning project..."
 	if (Test-Path '$(VENV_DIR)') { Remove-Item -Recurse -Force '$(VENV_DIR)' }
 	Get-ChildItem -Path $(WASM_DIR) -Include *.wasm,*.js,*.sig -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 	if (Test-Path '$(SERVER_DIR)/__pycache__') { Remove-Item -Recurse -Force '$(SERVER_DIR)/__pycache__' }
 	if (Test-Path '$(WASM_DIR)/__pycache__') { Remove-Item -Recurse -Force '$(WASM_DIR)/__pycache__' }
 
-win-db-users:
+db-users:
 	& $(VENV_PY) -c "import sqlite3; db='$(SERVER_DIR)/zkp_auth.db'; con=sqlite3.connect(db); cur=con.cursor(); rows=cur.execute('SELECT user_id, salt, verifier FROM users;').fetchall(); print('\n'.join(str(r) for r in rows))"
 
-win-db-sessions:
+db-sessions:
 	& $(VENV_PY) -c "import sqlite3; db='$(SERVER_DIR)/zkp_auth.db'; con=sqlite3.connect(db); cur=con.cursor(); rows=cur.execute('SELECT session_id, user_id, used, datetime(expires_at, \"unixepoch\") FROM sessions;').fetchall(); print('\n'.join(str(r) for r in rows))"
 
-win-db-full:
+db-full:
 	& $(VENV_PY) -c "import sqlite3; db='$(SERVER_DIR)/zkp_auth.db'; con=sqlite3.connect(db); cur=con.cursor(); print('================ USERS ================'); rows=cur.execute('SELECT user_id, salt, verifier FROM users;').fetchall(); print('\n'.join(str(r) for r in rows)); print('\n=============== SESSIONS =============='); rows=cur.execute('SELECT * FROM sessions;').fetchall(); print('\n'.join(str(r) for r in rows))"
 
-win-reset-db:
+reset-db:
 	if (Test-Path '$(SERVER_DIR)/zkp_auth.db') { Remove-Item '$(SERVER_DIR)/zkp_auth.db' }
 	& $(VENV_PY) -c "from zkp_server.storage import init_db; init_db()"

@@ -68,17 +68,32 @@ def verify_proof(v_b64: str, t_b64: str, c_bytes: bytes, s_b64: str) -> bool:
     """
     Verifies Schnorr proof for Ed25519 curve:
       g^s == t * v^c
+    This function reduces scalars to canonical form before using the noclamp APIs.
     """
+    try:
+        from nacl.bindings import crypto_core_ed25519_scalar_reduce
+    except Exception:
+        crypto_core_ed25519_scalar_reduce = None
+
     try:
         v = b64url_to_bytes(v_b64)
         t = b64url_to_bytes(t_b64)
         s = b64url_to_bytes(s_b64)
 
-        # g^s
-        gs = crypto_scalarmult_ed25519_base_noclamp(s)
+        # reduce challenge c_bytes and s to canonical scalars
+        if crypto_core_ed25519_scalar_reduce:
+            c_red = crypto_core_ed25519_scalar_reduce(c_bytes)
+            s_red = crypto_core_ed25519_scalar_reduce(s)
+        else:
+            # fallback: if binding missing, assume c_bytes and s are already reduced
+            c_red = c_bytes
+            s_red = s
 
-        # v^c  (tweak: PyNaCl binding expects scalar, point in specific order)
-        vc = crypto_scalarmult_ed25519_noclamp(c_bytes, v)
+        # g^s
+        gs = crypto_scalarmult_ed25519_base_noclamp(s_red)
+
+        # v^c
+        vc = crypto_scalarmult_ed25519_noclamp(c_red, v)
 
         # expected = t * v^c
         expected = crypto_core_ed25519_add(t, vc)
@@ -87,6 +102,7 @@ def verify_proof(v_b64: str, t_b64: str, c_bytes: bytes, s_b64: str) -> bool:
     except Exception as e:
         print(f"[verify_proof] Verification error: {e}")
         return False
+
 
 
 # ===========================================================
