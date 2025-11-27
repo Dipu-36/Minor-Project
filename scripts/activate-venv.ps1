@@ -1,20 +1,18 @@
-# activate-venv.ps1 — Activate venv and KEEP the shell open
-
+# activate-venv.ps1 — Activate venv and keep shell open
 $ErrorActionPreference = "Stop"
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Set-Location "$ScriptDir\.."
 
 $VENV_ACT = ".\venv\Scripts\Activate.ps1"
 
 if (-not (Test-Path $VENV_ACT)) {
-    Write-Host "Virtual environment not found. Creating it..."
+    Write-Host "venv not found. Creating a new virtual environment..."
     python -m venv venv
 }
 
-Write-Host "Activating venv..."
+Write-Host "Activating virtual environment..."
 . $VENV_ACT
 
-Write-Host "✔ Virtual environment activated."
-Write-Host "You can now run Python inside this shell."
-Write-Host ""
-Write-Host "To exit: type 'exit'"
+Write-Host "✔ venv activated."
+Write-Host "To exit type: exit"

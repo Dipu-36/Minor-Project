@@ -22,9 +22,8 @@ VENV_PIP := $(VENV_DIR)\Scripts\pip.exe
 
 all: setup-all
 
-#make -f Makefile.win venv
 venv:
-	@powershell -NoExit -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\activate-venv.ps1
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\venv.ps1
 
 init-db:
 	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\init-db.ps1
@@ -43,9 +42,6 @@ setup-all:
 
 run-local:
 	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\run-local.ps1
-
-clean-venv:
-	powershell -ExecutionPolicy Bypass -File scripts\clean-venv.ps1
 
 docker-build:
 	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\docker-build.ps1

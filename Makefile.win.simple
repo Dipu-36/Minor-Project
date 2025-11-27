@@ -1,0 +1,9 @@
+.PHONY: setup-all
+
+# Simple Makefile to run the Windows PowerShell setup script
+setup-all:
+	@powershell.exe -NoProfile -NoLogo -ExecutionPolicy Bypass -File "scripts\win_setup.ps1"
+
+.PHONY: run-ps
+run-ps:
+	@powershell.exe -NoProfile -NoLogo -ExecutionPolicy Bypass -File "scripts\win_setup.ps1"
