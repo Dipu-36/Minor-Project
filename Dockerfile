@@ -2,7 +2,7 @@
 # Dockerfile for the ZKP Authentication Framework
 # ============================================================
 
-FROM ubuntu:22.04
+FROM alpine
 
 # -----------------------------
 # Install base dependencies
