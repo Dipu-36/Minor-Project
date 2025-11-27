@@ -1,200 +1,68 @@
-# RUNNING_PROJECT.md
+# ZKP Framework — Windows Quick Start (Makefile.win)
 
-# ZKP Authentication Framework — How to Run the Project
+This file explains how to use the **Makefile.win** helper and the accompanying `scripts/*.ps1` PowerShell scripts to setup, run, and maintain the ZKP Auth Framework on **Windows**.  
+Everything below assumes you are in the project root (the directory that contains `Makefile.win` and the `scripts/` folder).
 
-This guide explains the exact sequence of commands required to set up and run the ZKP Authentication Framework on:
-
-- **Linux / macOS (Unix-like)**
-- **Windows (PowerShell)**
-
-The goal: **You should be able to clone the repo and run the server successfully by following this file only.**
-
----
-
-# ✅ 1. Prerequisites
-
-## Linux / macOS
-You must have:
-- Python 3.8+
-- `make`
-- `bash`
-- `openssl`
-- `sqlite3` (optional)
-
-## Windows
-You must have:
-- Python 3.8+
-- PowerShell
-- Git Bash **OR** WSL (required for building WebAssembly)
-- OpenSSL (via Git Bash or WSL)
-- Docker (optional)
-
-> **Note:** You can run the Python server fully on Windows, but WASM building requires Git Bash or WSL.
+> **Important**: `Makefile.win` is not automatically discovered by `make`. You must invoke `make` with `-f Makefile.win` and the target name:
+>
+> ```
+> make -f Makefile.win <target>
+> ```
+>
+> Replace `<target>` with the actual target name from the list shown below.
 
 ---
 
-# ✅ 2. First-Time Setup (Full Project Setup)
+## Prerequisites (Windows)
 
-Run these commands **once** after cloning.
+1. **PowerShell** (modern Windows includes it).  
+2. **Python 3** on PATH.  
+3. A `make` implementation (GNU Make). Options:
+   - Install **Git for Windows** and use **Git Bash** (recommended).
+   - Install **MSYS2** / `pacman -S make`.
+   - Use **WSL** (Ubuntu) and run `make` inside WSL (you can still call PowerShell scripts).
+4. **Optional but required for some steps**:
+   - **OpenSSL** on PATH (or run TLS generation from WSL/Git Bash).
+   - **Bash (WSL / Git Bash)** for building the WASM (`build-wasm`) and running `sign_wasm.sh`.
+   - **Docker** if you plan to use the docker targets.
 
-## **Linux / macOS**
-```bash
-make setup-all
-```
-
-This automatically performs:
-1. Environment setup (virtualenv)
-2. TLS certificate generation
-3. Database initialization
-4. WASM build
-5. WASM signing key generation
-
----
-
-## **Windows (PowerShell)**
-```powershell
-make win-setup-all
-```
-
-Equivalent to the Unix setup but using Windows commands.
+If `make` is not available, you can run the PowerShell scripts directly from `scripts\*.ps1`.
 
 ---
 
-# ✅ 3. Running the Local HTTPS Server
+## High-level recommended sequence
 
-## **Linux / macOS**
-```bash
-make run-local
-```
+Run the following targets in order to set up the development environment and start the local server:
 
-## **Windows**
-```powershell
-make win-run-local
-```
+1. **make -f Makefile.win venv**  
+   Creates the virtual environment, installs Python dependencies, then opens a **new PowerShell session with the virtualenv activated** (you will see `(venv)` in your prompt). This is the preferred first step.
 
-Server runs at:
-```
-https://localhost:8443
-```
+   - If you only want to create the venv (no interactive shell), run:
+     ```
+     powershell -ExecutionPolicy Bypass -File .\scripts\venv.ps1
+     ```
 
-You may see a self-signed certificate warning — this is expected.
+2. **make -f Makefile.win gen-tls**  
+   Generates a self-signed TLS certificate at `zkp_server/server.crt` and `zkp_server/server.key` (requires `openssl`).
 
----
+3. **make -f Makefile.win init-db**  
+   Initializes the local SQLite database using the project `venv` Python.
 
-# ✅ 4. Daily Development Workflow
+4. **make -f Makefile.win build-wasm**  
+   Builds the WebAssembly module (invokes `wasm_crypto/build.sh` via bash). Bash/WSL required.
 
-## Step 1: Activate the virtual environment  
-### Linux/macOS:
-```bash
-source venv/bin/activate
-```
+5. **make -f Makefile.win gen-keys**  
+   Runs the `sign_wasm.sh` script (via bash/WSL) to create signing keys for the WASM.
 
-### Windows:
-```powershell
-.\venv\Scripts\activate
-```
+6. **make -f Makefile.win setup-all**  
+   Equivalent convenience target that runs the full setup: `venv`, `gen-tls`, `init-db`, `build-wasm`, `gen-keys`. (Note: `venv` will open a new interactive PowerShell session — after finishing the rest, you may need to re-run `setup-all` from that session or run the individual steps as shown above.)
 
-## Step 2: Rebuild WASM if crypto code changed:
-```bash
-make build-wasm
-```
-
-## Step 3: Run the server:
-```bash
-make run-local
-```
+7. **make -f Makefile.win run-local**  
+   Starts the local HTTPS server using the virtual environment python.
 
 ---
 
-# ✅ 5. Database Management (SQLite)
+## Single-command setup (convenience)
 
-## View all users:
-### Linux/macOS:
-```bash
-make db-users
-```
+If you prefer one command that runs everything (and you accept it will spawn a persistent venv shell), do:
 
-### Windows:
-```powershell
-make win-db-users
-```
-
-## View session records:
-```bash
-make db-sessions   # Unix
-make win-db-sessions   # Windows
-```
-
-## View users + sessions:
-```bash
-make db-full
-```
-
-## Reset the entire database:
-⚠ **Deletes and recreates the DB**
-```bash
-make reset-db        # Unix
-make win-reset-db    # Windows
-```
-
----
-
-# ✅ 6. Docker Support (Optional)
-
-## Build the Docker image:
-```bash
-make docker-build
-```
-
-## Run container:
-```bash
-make docker-run
-```
-
-Page available at:
-```
-https://localhost:8443
-```
-
-## Shell inside the container:
-```bash
-make docker-shell
-```
-
-## Clean images/containers:
-```bash
-make docker-clean
-```
-
----
-
-# ✨ 7. Useful Commands Summary
-
-| Purpose | Linux/macOS | Windows |
-|--------|--------------|---------|
-| Full setup | `make setup-all` | `make win-setup-all` |
-| Run server | `make run-local` | `make win-run-local` |
-| Build WASM | `make build-wasm` | `make win-build-wasm` |
-| Reset DB | `make reset-db` | `make win-reset-db` |
-| View users | `make db-users` | `make win-db-users` |
-| View sessions | `make db-sessions` | `make win-db-sessions` |
-| Docker build | `make docker-build` | `make win-docker-build` |
-
----
-
-# 🎉 Done!
-
-This document provides everything needed to:
-
-- Build the WebAssembly module  
-- Initialize the ZKP database  
-- Set up TLS certificates  
-- Run the secure HTTPS server  
-- Inspect or reset/auth DB  
-- Use Docker if needed  
-
-If you need, I can also create:
-
-✅ A full `README.md`  
-✅ A developer onboarding guide  
-✅ Diagrams for architecture, WASM flow, or ZKP protocol  
