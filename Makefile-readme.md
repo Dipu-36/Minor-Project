@@ -35,11 +35,8 @@ If `make` is not available, you can run the PowerShell scripts directly from `sc
 Run the following targets in order to set up the development environment and start the local server:
 
 1. **make -f Makefile.win venv**  
-   Creates the virtual environment, installs Python dependencies, then opens a **new PowerShell session with the virtualenv activated** (you will see `(venv)` in your prompt). This is the preferred first step.
-
-   - If you only want to create the venv (no interactive shell), run:
-     ```
-     powershell -ExecutionPolicy Bypass -File .\scripts\venv.ps1
+   Creates the virtual environment, installs Python dependencies, then opens a **new  
+   run - **make -f Makefile.win activate-venv** to activate the venv
      ```
 
 2. **make -f Makefile.win gen-tls**  
