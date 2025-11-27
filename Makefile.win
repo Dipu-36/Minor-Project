@@ -25,6 +25,9 @@ all: setup-all
 venv:
 	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\venv.ps1
 
+activate-venv:
+	powershell -ExecutionPolicy Bypass -File scripts\activate-venv.ps1
+
 init-db:
 	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\init-db.ps1
 
