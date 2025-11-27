@@ -1,0 +1,10 @@
+# Enforce LF for bash scripts (critical for Linux/WSL/macOS)
+*.sh text eol=lf
+
+# Enforce CRLF for Windows scripts
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Default behavior for other files
+* text=auto

@@ -1,0 +1,75 @@
+# Makefile.win — Windows helper that calls PowerShell scripts in ./scripts
+
+IMAGE_NAME := zkp-framework
+CONTAINER_NAME := zkp-framework-dev
+PORT := 8443
+
+WASM_DIR := wasm_crypto
+SCRIPT_DIR := scripts
+SERVER_DIR := zkp_server
+
+DB_PATH := $(SERVER_DIR)/zkp_auth.db
+CERT := $(SERVER_DIR)/server.crt
+KEY  := $(SERVER_DIR)/server.key
+
+VENV_DIR := venv
+VENV_PY := $(VENV_DIR)\Scripts\python.exe
+VENV_PIP := $(VENV_DIR)\Scripts\pip.exe
+
+.PHONY: all venv init-db gen-tls gen-keys build-wasm setup-all run-local \
+        docker-build docker-run docker-shell docker-clean clean reset-db \
+        db-users db-sessions db-full
+
+all: setup-all
+
+#make -f Makefile.win venv
+venv:
+	@powershell -NoExit -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\activate-venv.ps1
+
+init-db:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\init-db.ps1
+
+gen-tls:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\gen-tls.ps1
+
+gen-keys:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\gen-keys.ps1
+
+build-wasm:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\build-wasm.ps1
+
+setup-all:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\setup-all.ps1
+
+run-local:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\run-local.ps1
+
+clean-venv:
+	powershell -ExecutionPolicy Bypass -File scripts\clean-venv.ps1
+
+docker-build:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\docker-build.ps1
+
+docker-run:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\docker-run.ps1
+
+docker-shell:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\docker-shell.ps1
+
+docker-clean:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\docker-clean.ps1
+
+db-users:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\db-users.ps1
+
+db-sessions:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\db-sessions.ps1
+
+db-full:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\db-full.ps1
+
+reset-db:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\reset-db.ps1
+
+clean:
+	@powershell -ExecutionPolicy Bypass -File $(SCRIPT_DIR)\clean.ps1

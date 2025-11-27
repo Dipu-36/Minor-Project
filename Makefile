@@ -1,52 +1,43 @@
-# ==========================================================
-# Makefile for Dockerized ZKP Authentication Framework
-# ==========================================================
+# Makefile for ZKP Framework (Windows/Linux/WSL)
 
-IMAGE_NAME := zkp-framework
-CONTAINER_NAME := zkp-framework-dev
-PORT := 8443
+.PHONY: help setup run clean venv gen-tls init-db build-wasm gen-keys
 
-# ==========================================================
-# Local Development (non-Docker)
-# ==========================================================
-venv:
-	@echo "🐍 Creating virtual environment..."
-	@test -d venv || python3 -m venv venv
-	@venv/bin/pip install --upgrade pip
-	@venv/bin/pip install flask pynacl argon2-cffi
+help:
+	@echo "Available targets:"
+	@echo "  make setup      - Run full environment setup (venv, tls, db, wasm, keys)"
+	@echo "  make run        - Run the local development server"
+	@echo "  make clean      - Clean up venv, db, and build artifacts"
+	@echo "  make venv       - Create virtual environment only"
+	@echo "  make gen-tls    - Generate TLS certificates"
+	@echo "  make init-db    - Initialize database"
+	@echo "  make build-wasm - Build WebAssembly module"
+	@echo "  make gen-keys   - Generate signing keys"
 
-run-local: venv
-	@echo "🚀 Running local HTTPS server..."
-	cd zkp_server && ../venv/bin/python server.py
+setup:
+	@echo "Running full setup..."
+	@bash scripts/setup-all.sh
 
-# ==========================================================
-# Docker Build & Run
-# ==========================================================
-docker-build:
-	@echo " Building Docker image: $(IMAGE_NAME)"
-	docker build -t $(IMAGE_NAME) .
+run:
+	@echo "Starting server..."
+	@bash scripts/run-local.sh
 
-docker-run:
-	@echo "Running Docker container on port $(PORT)..."
-	docker run --rm -p $(PORT):8443 --name $(CONTAINER_NAME) $(IMAGE_NAME)
-
-docker-shell:
-	@echo " Opening interactive shell in container..."
-	docker exec -it $(CONTAINER_NAME) /bin/bash || \
-	docker run -it --rm --entrypoint /bin/bash $(IMAGE_NAME)
-
-docker-clean:
-	@echo " Removing old Docker images..."
-	-docker rm -f $(CONTAINER_NAME) || true
-	-docker rmi $(IMAGE_NAME) || true
-
-# ==========================================================
-# Utility
-# ==========================================================
 clean:
-	@echo " Cleaning up..."
-	rm -rf venv wasm_crypto/*.wasm wasm_crypto/*.js
-	find . -type d -name "__pycache__" -exec rm -rf {} +
+	@echo "Cleaning project..."
+	@bash scripts/clean-venv.sh
+	@bash scripts/docker-clean.sh
+	@bash scripts/reset-db.sh
 
-.PHONY: venv run-local docker-build docker-run docker-shell docker-clean clean
+venv:
+	@bash scripts/venv.sh
 
+gen-tls:
+	@bash scripts/gen-tls.sh
+
+init-db:
+	@bash scripts/init-db.sh
+
+build-wasm:
+	@bash scripts/build-wasm.sh
+
+gen-keys:
+	@bash scripts/gen-keys.sh

@@ -26,6 +26,7 @@ MANIFEST
 venv/
 env/
 .venv/
+test_venv/
 
 # Database
 *.db
